@@ -7,9 +7,11 @@ export class ChatMessageDto {
 
 export class ChatDto {
   message: string;
+  sessionId?: string;
   messages?: ChatMessageDto[];
 }
 
 export class ChatResponseDto {
   reply: string;
+  sessionId: string;
 }

@@ -1,38 +1,32 @@
 import {
   BadRequestException,
+  HttpException,
   Injectable,
   InternalServerErrorException,
-  ServiceUnavailableException,
 } from '@nestjs/common';
-import { ChatDto, ChatResponseDto } from './dto/chat.dto';
 import { DEFAULT_AGENT_SYSTEM_PROMPT } from './agent.prompt';
+import { ChatDto, ChatResponseDto } from './dto/chat.dto';
+import { AgentMemoryService } from './memory/agent-memory.service';
+import { AgentSessionMemory } from './memory/agent-memory.types';
+import { LlmService } from '../llm/llm.service';
 import { AgentChatMessage, AgentToolCall } from './tools/agent-tool.types';
 import { AgentToolsService } from './tools/agent-tools.service';
 
-type OpenRouterChatResponse = {
-  choices?: Array<{
-    message?: {
-      content?: string | null;
-      tool_calls?: AgentToolCall[];
-    };
-    finish_reason?: string;
-  }>;
-  error?: {
-    message?: string;
-  };
+type ToolExecutionResult = {
+  content: string;
+  data?: unknown;
 };
 
 @Injectable()
 export class AgentService {
-  private readonly apiKey = process.env.OPENROUTER_API_KEY;
-  private readonly model = process.env.OPENROUTER_MODEL ?? 'openai/gpt-4o';
-  private readonly apiUrl =
-    process.env.OPENROUTER_API_URL ??
-    'https://openrouter.ai/api/v1/chat/completions';
   private readonly systemPrompt =
     process.env.AGENT_SYSTEM_PROMPT ?? DEFAULT_AGENT_SYSTEM_PROMPT;
 
-  constructor(private readonly agentToolsService: AgentToolsService) {}
+  constructor(
+    private readonly llmService: LlmService,
+    private readonly agentToolsService: AgentToolsService,
+    private readonly agentMemoryService: AgentMemoryService,
+  ) {}
 
   async chat(chatDto: ChatDto): Promise<ChatResponseDto> {
     const message = chatDto.message?.trim();
@@ -41,24 +35,25 @@ export class AgentService {
       throw new BadRequestException('A mensagem não pode ser vazia');
     }
 
-    if (!this.apiKey) {
-      throw new ServiceUnavailableException(
-        'Integração de IA não configurada. Defina OPENROUTER_API_KEY no ambiente.',
-      );
-    }
+    const memory = await this.agentMemoryService.getOrCreate(chatDto.sessionId);
+    const messages = this.buildMessages(chatDto.messages, message, memory);
+    const reply = await this.runChatWithTools(messages, memory.sessionId);
 
-    const messages = this.buildMessages(chatDto.messages, message);
-    const reply = await this.runChatWithTools(messages);
-
-    return { reply };
+    return { reply, sessionId: memory.sessionId };
   }
 
   private buildMessages(
     history: ChatDto['messages'],
     message: string,
+    memory: AgentSessionMemory,
   ): AgentChatMessage[] {
+    const memoryContext = this.agentMemoryService.buildContextPrompt(memory);
+    const systemContent = memoryContext
+      ? `${this.systemPrompt}\n\n${memoryContext}`
+      : this.systemPrompt;
+
     const messages: AgentChatMessage[] = [
-      { role: 'system', content: this.systemPrompt },
+      { role: 'system', content: systemContent },
     ];
 
     if (history?.length) {
@@ -71,41 +66,37 @@ export class AgentService {
 
   private async runChatWithTools(
     messages: AgentChatMessage[],
+    sessionId: string,
   ): Promise<string> {
     const maxIterations = 5;
 
     for (let iteration = 0; iteration < maxIterations; iteration++) {
-      const data = await this.requestCompletion(messages);
-      const choice = data.choices?.[0];
-      const assistantMessage = choice?.message;
+      const response = await this.llmService.complete({
+        messages,
+        tools: this.agentToolsService.getDefinitions(),
+      });
 
-      if (!assistantMessage) {
-        throw new InternalServerErrorException(
-          'A IA não retornou uma resposta válida',
-        );
-      }
-
-      if (assistantMessage.tool_calls?.length) {
+      if (response.toolCalls?.length) {
         messages.push({
           role: 'assistant',
-          content: assistantMessage.content,
-          tool_calls: assistantMessage.tool_calls,
+          content: response.content,
+          tool_calls: response.toolCalls,
         });
 
-        for (const toolCall of assistantMessage.tool_calls) {
-          const result = await this.executeToolCall(toolCall);
+        for (const toolCall of response.toolCalls) {
+          const result = await this.executeToolCall(toolCall, sessionId);
 
           messages.push({
             role: 'tool',
             tool_call_id: toolCall.id,
-            content: JSON.stringify(result),
+            content: result.content,
           });
         }
 
         continue;
       }
 
-      const reply = assistantMessage.content?.trim();
+      const reply = response.content?.trim();
 
       if (!reply) {
         throw new InternalServerErrorException(
@@ -116,45 +107,90 @@ export class AgentService {
       return reply;
     }
 
-    throw new InternalServerErrorException(
-      'Limite de iterações de tools atingido',
-    );
-  }
+    const finalResponse = await this.llmService.complete({ messages });
+    const finalReply = finalResponse.content?.trim();
 
-  private async executeToolCall(toolCall: AgentToolCall): Promise<unknown> {
-    const args = JSON.parse(toolCall.function.arguments || '{}') as Record<
-      string,
-      unknown
-    >;
-
-    return this.agentToolsService.execute(toolCall.function.name, args);
-  }
-
-  private async requestCompletion(
-    messages: AgentChatMessage[],
-  ): Promise<OpenRouterChatResponse> {
-    const response = await fetch(this.apiUrl, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: this.model,
-        messages,
-        tools: this.agentToolsService.getDefinitions(),
-        tool_choice: 'auto',
-      }),
-    });
-
-    const data = (await response.json()) as OpenRouterChatResponse;
-
-    if (!response.ok) {
-      throw new InternalServerErrorException(
-        data.error?.message ?? 'Falha ao gerar resposta da IA',
-      );
+    if (finalReply) {
+      return finalReply;
     }
 
-    return data;
+    return 'Não consegui concluir sua solicitação no momento. Pode tentar novamente com mais detalhes?';
+  }
+
+  private async executeToolCall(
+    toolCall: AgentToolCall,
+    sessionId: string,
+  ): Promise<ToolExecutionResult> {
+    try {
+      const args = JSON.parse(toolCall.function.arguments || '{}') as Record<
+        string,
+        unknown
+      >;
+
+      const data = await this.agentToolsService.execute(
+        toolCall.function.name,
+        args,
+      );
+
+      await this.agentMemoryService.syncFromToolResult(
+        sessionId,
+        toolCall.function.name,
+        data,
+      );
+
+      return {
+        content: this.formatToolSuccess(data),
+        data,
+      };
+    } catch (error) {
+      return {
+        content: this.formatToolError(error),
+      };
+    }
+  }
+
+  private formatToolSuccess(data: unknown): string {
+    return JSON.stringify({ success: true, data });
+  }
+
+  private formatToolError(error: unknown): string {
+    return JSON.stringify({
+      success: false,
+      error: this.getErrorMessage(error),
+    });
+  }
+
+  private getErrorMessage(error: unknown): string {
+    if (error instanceof HttpException) {
+      const response = error.getResponse();
+
+      if (typeof response === 'string') {
+        return response;
+      }
+
+      if (
+        typeof response === 'object' &&
+        response !== null &&
+        'message' in response
+      ) {
+        const message = (response as { message?: string | string[] }).message;
+
+        if (Array.isArray(message)) {
+          return message.join(', ');
+        }
+
+        if (message) {
+          return message;
+        }
+      }
+
+      return error.message;
+    }
+
+    if (error instanceof Error) {
+      return error.message;
+    }
+
+    return 'Erro desconhecido ao executar a ferramenta';
   }
 }

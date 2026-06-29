@@ -1,20 +1,26 @@
 import { Module } from '@nestjs/common';
 import { AppointmentsModule } from '../appointments/appointments.module';
+import { CalendarModule } from '../calendar/calendar.module';
 import { CustomersModule } from '../customers/customers.module';
+import { LlmModule } from '../llm/llm.module';
+import { AgentMemoryService } from './memory/agent-memory.service';
 import { AgentController } from './agent.controller';
 import { AgentService } from './agent.service';
 import { AgentToolsService } from './tools/agent-tools.service';
 import { AppointmentsTools } from './tools/appointments.tools';
+import { CalendarTools } from './tools/calendar.tools';
 import { CustomersTools } from './tools/customers.tools';
 
 @Module({
-  imports: [CustomersModule, AppointmentsModule],
+  imports: [LlmModule, CustomersModule, AppointmentsModule, CalendarModule],
   controllers: [AgentController],
   providers: [
     AgentService,
+    AgentMemoryService,
     AgentToolsService,
     CustomersTools,
     AppointmentsTools,
+    CalendarTools,
   ],
 })
 export class AgentModule {}
