@@ -6,6 +6,11 @@ import {
   appointmentTools,
 } from './appointments.tools';
 import {
+  CALENDAR_TOOL_NAMES,
+  CalendarTools,
+  calendarTools as calendarToolDefinitions,
+} from './calendar.tools';
+import {
   CUSTOMER_TOOL_NAMES,
   CustomersTools,
   customerTools,
@@ -22,6 +27,7 @@ export class AgentToolsService {
   constructor(
     private readonly customersTools: CustomersTools,
     private readonly appointmentsTools: AppointmentsTools,
+    private readonly calendarTools: CalendarTools,
   ) {
     this.registerModule(customerTools, CUSTOMER_TOOL_NAMES, (name, args) =>
       this.customersTools.execute(name, args),
@@ -31,6 +37,12 @@ export class AgentToolsService {
       appointmentTools,
       APPOINTMENT_TOOL_NAMES,
       (name, args) => this.appointmentsTools.execute(name, args),
+    );
+
+    this.registerModule(
+      calendarToolDefinitions,
+      CALENDAR_TOOL_NAMES,
+      (name, args) => this.calendarTools.execute(name, args),
     );
   }
 
