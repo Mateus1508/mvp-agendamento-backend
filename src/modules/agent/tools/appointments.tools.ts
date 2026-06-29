@@ -101,25 +101,33 @@ export class AppointmentsTools {
         return this.appointmentsService.findAll();
 
       case 'get_appointment':
-        return this.appointmentsService.findOne(String(args.id));
+        return this.appointmentsService.findOne(toRequiredString(args.id));
 
       case 'create_appointment':
         return this.appointmentsService.create({
-          customerId: String(args.customerId),
-          date: String(args.date),
+          customerId: toRequiredString(args.customerId),
+          date: toRequiredString(args.date),
         });
 
       case 'update_appointment':
-        return this.appointmentsService.update(String(args.id), {
-          customerId: args.customerId ? String(args.customerId) : undefined,
-          date: args.date ? String(args.date) : undefined,
+        return this.appointmentsService.update(toRequiredString(args.id), {
+          customerId: toOptionalString(args.customerId),
+          date: toOptionalString(args.date),
         });
 
       case 'delete_appointment':
-        return this.appointmentsService.remove(String(args.id));
+        return this.appointmentsService.remove(toRequiredString(args.id));
 
       default:
-        throw new Error(`Tool de agendamento desconhecida: ${name}`);
+        throw new Error(`Tool de agendamento desconhecida: ${String(name)}`);
     }
   }
+}
+
+function toRequiredString(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function toOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
 }
