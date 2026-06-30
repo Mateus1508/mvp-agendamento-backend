@@ -1,14 +1,28 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+enum AgentPersonality {
+  FRIENDLY
+  DIRECT
+  SERIOUS
 }
 
 model Customer {
@@ -30,7 +44,7 @@ model Appointment {
   createdAt DateTime @default(now())
 }
 
-model User {
+model Client {
   id        String   @id @default(uuid())
   googleId  String   @unique
   email     String   @unique
@@ -38,6 +52,118 @@ model User {
   picture   String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model Company {
+  id                    String    @id @default(uuid())
+  name                  String
+  segment               String
+  slug                  String    @unique
+  tradeName             String?
+  legalName             String?
+  cnpj                  String?
+  phone                 String?
+  whatsapp              String?
+  supportEmail          String?
+  website               String?
+  onboardingStep        Int       @default(0)
+  onboardingCompletedAt DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  users                CompanyUser[]
+  address              CompanyAddress?
+  businessHours          BusinessHour[]
+  employees              Employee[]
+  services               Service[]
+  agentConfig            CompanyAgentConfig?
+  calendarConnection     CompanyCalendarConnection?
+}
+
+model CompanyUser {
+  id           String   @id @default(uuid())
+  companyId    String
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  firstName    String
+  lastName     String
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model CompanyAddress {
+  id         String  @id @default(uuid())
+  companyId  String  @unique
+  company    Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  zipCode    String
+  street     String
+  number     String
+  complement String?
+  city       String
+  state      String
+}
+
+model BusinessHour {
+  id        String    @id @default(uuid())
+  companyId String
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  dayOfWeek DayOfWeek
+  enabled   Boolean   @default(false)
+  startTime String?
+  endTime   String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([companyId, dayOfWeek])
+}
+
+model Employee {
+  id                      String   @id @default(uuid())
+  companyId               String
+  company                 Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name                    String
+  specialty               String
+  schedule                String?
+  googleCalendarConnected Boolean  @default(false)
+  active                  Boolean  @default(true)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+}
+
+model Service {
+  id          String   @id @default(uuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name        String
+  priceMin    Decimal  @db.Decimal(10, 2)
+  priceMax    Decimal  @db.Decimal(10, 2)
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model CompanyAgentConfig {
+  id                 String           @id @default(uuid())
+  companyId          String           @unique
+  company            Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  agentName          String
+  personality        AgentPersonality
+  initialMessage     String
+  customInstructions String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+}
+
+model CompanyCalendarConnection {
+  id           String    @id @default(uuid())
+  companyId    String    @unique
+  company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  refreshToken String?
+  calendarId   String    @default("primary")
+  connectedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 }
 
 model AgentSession {

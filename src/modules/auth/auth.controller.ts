@@ -1,13 +1,10 @@
-import {
-  Controller,
-  Get,
-  Query,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
+import { AuthUser, GoogleAuthResult } from './auth.types';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
-import { AuthUser, GoogleAuthResult } from './auth.types';
+import { LoginCompanyDto } from './dto/login-company.dto';
+import { RegisterCompanyDto } from './dto/register-company.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -29,6 +26,18 @@ export class AuthController {
     }
 
     return this.authService.handleGoogleCallback(code);
+  }
+
+  @Public()
+  @Post('company/register')
+  registerCompany(@Body() dto: RegisterCompanyDto) {
+    return this.authService.registerCompany(dto);
+  }
+
+  @Public()
+  @Post('company/login')
+  loginCompany(@Body() dto: LoginCompanyDto) {
+    return this.authService.loginCompany(dto);
   }
 
   @Get('me')

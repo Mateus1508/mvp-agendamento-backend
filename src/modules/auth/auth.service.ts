@@ -1,12 +1,30 @@
 import {
+  BadRequestException,
+  ConflictException,
+  Inject,
   Injectable,
   ServiceUnavailableException,
   UnauthorizedException,
+  forwardRef,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import * as bcrypt from 'bcryptjs';
 import { google } from 'googleapis';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AuthUser, GoogleAuthResult, JwtPayload } from './auth.types';
+import { CompaniesService } from '../companies/companies.service';
+import { generateUniqueSlug } from '../companies/companies.utils';
+import {
+  AuthResult,
+  AuthUser,
+  ClientAuthUser,
+  CompanyAuthUser,
+  GoogleAuthResult,
+  JwtPayload,
+} from './auth.types';
+import { LoginCompanyDto } from './dto/login-company.dto';
+import { RegisterCompanyDto } from './dto/register-company.dto';
+
+const PASSWORD_SALT_ROUNDS = 10;
 
 @Injectable()
 export class AuthService {
@@ -17,6 +35,8 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    @Inject(forwardRef(() => CompaniesService))
+    private readonly companiesService: CompaniesService,
   ) {}
 
   getGoogleAuthUrl(): string {
@@ -52,7 +72,7 @@ export class AuthService {
       );
     }
 
-    const user = await this.prisma.user.upsert({
+    const client = await this.prisma.client.upsert({
       where: { googleId: data.id },
       update: {
         email: data.email,
@@ -67,27 +87,119 @@ export class AuthService {
       },
     });
 
-    const accessToken = await this.jwtService.signAsync({
-      sub: user.id,
-      email: user.email,
-    } satisfies JwtPayload);
+    return this.buildAuthResult(this.toClientAuthUser(client));
+  }
 
-    return {
-      accessToken,
-      user: this.toAuthUser(user),
-    };
+  async registerCompany(dto: RegisterCompanyDto): Promise<AuthResult> {
+    if (dto.password !== dto.confirmPassword) {
+      throw new BadRequestException('As senhas não coincidem');
+    }
+
+    const existingUser = await this.prisma.companyUser.findUnique({
+      where: { email: dto.email },
+    });
+
+    if (existingUser) {
+      throw new ConflictException('Já existe uma conta com este e-mail');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.password, PASSWORD_SALT_ROUNDS);
+    const tradeName = dto.companyName.trim();
+
+    const slug = await generateUniqueSlug(tradeName, async (candidate) => {
+      const existing = await this.prisma.company.findUnique({
+        where: { slug: candidate },
+      });
+      return Boolean(existing);
+    });
+
+    const companyUser = await this.prisma.$transaction(async (tx) => {
+      const company = await tx.company.create({
+        data: {
+          name: tradeName,
+          segment: dto.segment,
+          slug,
+          tradeName,
+        },
+      });
+
+      return tx.companyUser.create({
+        data: {
+          companyId: company.id,
+          firstName: dto.firstName.trim(),
+          lastName: dto.lastName.trim(),
+          email: dto.email.trim().toLowerCase(),
+          passwordHash,
+        },
+        include: { company: true },
+      });
+    });
+
+    await this.companiesService.initializeBusinessHours(companyUser.companyId);
+
+    const refreshedUser = await this.prisma.companyUser.findUniqueOrThrow({
+      where: { id: companyUser.id },
+      include: { company: true },
+    });
+
+    return this.buildAuthResult(this.toCompanyAuthUser(refreshedUser));
+  }
+
+  async loginCompany(dto: LoginCompanyDto): Promise<AuthResult> {
+    const companyUser = await this.prisma.companyUser.findUnique({
+      where: { email: dto.email.trim().toLowerCase() },
+      include: { company: true },
+    });
+
+    if (!companyUser) {
+      throw new UnauthorizedException('E-mail ou senha inválidos');
+    }
+
+    const passwordMatches = await bcrypt.compare(
+      dto.password,
+      companyUser.passwordHash,
+    );
+
+    if (!passwordMatches) {
+      throw new UnauthorizedException('E-mail ou senha inválidos');
+    }
+
+    return this.buildAuthResult(this.toCompanyAuthUser(companyUser));
   }
 
   async validateUser(payload: JwtPayload): Promise<AuthUser> {
-    const user = await this.prisma.user.findUnique({
+    if (payload.type === 'company') {
+      const companyUser = await this.prisma.companyUser.findUnique({
+        where: { id: payload.sub },
+        include: { company: true },
+      });
+
+      if (!companyUser) {
+        throw new UnauthorizedException('Usuário não encontrado');
+      }
+
+      return this.toCompanyAuthUser(companyUser);
+    }
+
+    const client = await this.prisma.client.findUnique({
       where: { id: payload.sub },
     });
 
-    if (!user) {
+    if (!client) {
       throw new UnauthorizedException('Usuário não encontrado');
     }
 
-    return this.toAuthUser(user);
+    return this.toClientAuthUser(client);
+  }
+
+  private async buildAuthResult(user: AuthUser): Promise<AuthResult> {
+    const accessToken = await this.jwtService.signAsync({
+      sub: user.id,
+      email: user.email,
+      type: user.type,
+    } satisfies JwtPayload);
+
+    return { accessToken, user };
   }
 
   private createOAuthClient() {
@@ -104,19 +216,40 @@ export class AuthService {
     );
   }
 
-  private toAuthUser(user: {
+  private toClientAuthUser(client: {
     id: string;
     googleId: string;
     email: string;
     name: string;
     picture: string | null;
-  }): AuthUser {
+  }): ClientAuthUser {
     return {
-      id: user.id,
-      googleId: user.googleId,
-      email: user.email,
-      name: user.name,
-      picture: user.picture,
+      type: 'client',
+      id: client.id,
+      googleId: client.googleId,
+      email: client.email,
+      name: client.name,
+      picture: client.picture,
+    };
+  }
+
+  private toCompanyAuthUser(companyUser: {
+    id: string;
+    companyId: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    company: { name: string; segment: string };
+  }): CompanyAuthUser {
+    return {
+      type: 'company',
+      id: companyUser.id,
+      companyId: companyUser.companyId,
+      firstName: companyUser.firstName,
+      lastName: companyUser.lastName,
+      email: companyUser.email,
+      companyName: companyUser.company.name,
+      segment: companyUser.company.segment,
     };
   }
 }

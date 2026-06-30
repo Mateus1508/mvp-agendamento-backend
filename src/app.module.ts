@@ -3,6 +3,7 @@ import { AgentModule } from './modules/agent/agent.module';
 import { AppointmentsModule } from './modules/appointments/appointments.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
+import { CompaniesModule } from './modules/companies/companies.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { CustomersModule } from './modules/customers/customers.module';
@@ -12,6 +13,7 @@ import { PrismaModule } from './prisma/prisma.module';
   imports: [
     PrismaModule,
     AuthModule,
+    CompaniesModule,
     CustomersModule,
     AppointmentsModule,
     CalendarModule,

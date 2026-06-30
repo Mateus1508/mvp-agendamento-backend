@@ -8,9 +8,32 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: mvp_agendamento
     ports:
-      - "5433:5432"
+      - '5433:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d mvp_agendamento']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mvp-agendamento-backend
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/mvp_agendamento?schema=public
+      PORT: 3000
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   postgres_data:
