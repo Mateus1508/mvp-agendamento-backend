@@ -9,13 +9,10 @@ import {
 
 @Injectable()
 export class GoogleCalendarProvider {
-  private readonly calendarId =
-    process.env.GOOGLE_CALENDAR_ID ?? 'primary';
-  private readonly clientId =
-    process.env.GOOGLE_CALENDAR_CLIENT_ID ??
-    process.env.GOOGLE_CALENDAR_API_KEY;
-  private readonly clientSecret = process.env.GOOGLE_CALENDAR_CLIENT_SECRET;
-  private readonly refreshToken = process.env.GOOGLE_CALENDAR_REFRESH_TOKEN;
+  private readonly calendarId = process.env.GOOGLE_CALENDAR_ID ?? 'primary';
+  private readonly clientId = process.env.GOOGLE_CLIENT_ID;
+  private readonly clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  private readonly refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
 
   async createEvent(input: CalendarEventInput): Promise<CalendarEvent> {
     const calendar = this.getCalendarClient();
@@ -113,7 +110,7 @@ export class GoogleCalendarProvider {
   private getCalendarClient(): calendar_v3.Calendar {
     if (!this.clientId || !this.clientSecret || !this.refreshToken) {
       throw new ServiceUnavailableException(
-        'Integração com Google Calendar não configurada. Defina GOOGLE_CALENDAR_CLIENT_ID, GOOGLE_CALENDAR_CLIENT_SECRET e GOOGLE_CALENDAR_REFRESH_TOKEN.',
+        'Integração com Google Calendar não configurada. Defina GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET e GOOGLE_REFRESH_TOKEN.',
       );
     }
 
