@@ -30,6 +30,16 @@ model Appointment {
   createdAt DateTime @default(now())
 }
 
+model User {
+  id        String   @id @default(uuid())
+  googleId  String   @unique
+  email     String   @unique
+  name      String
+  picture   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model AgentSession {
   id         String    @id @default(uuid())
   customerId String?
