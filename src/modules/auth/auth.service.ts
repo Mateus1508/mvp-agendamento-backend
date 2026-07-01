@@ -58,7 +58,9 @@ export class AuthService {
     const { tokens } = await oauth2Client.getToken(code);
 
     if (!tokens.access_token) {
-      throw new UnauthorizedException('Google não retornou um access token válido');
+      throw new UnauthorizedException(
+        'Google não retornou um access token válido',
+      );
     }
 
     oauth2Client.setCredentials(tokens);

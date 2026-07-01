@@ -45,7 +45,9 @@ export class JwtAuthGuard implements CanActivate {
       request.user = await this.authService.validateUser(payload);
       return true;
     } catch {
-      throw new UnauthorizedException('Token de autenticação inválido ou expirado');
+      throw new UnauthorizedException(
+        'Token de autenticação inválido ou expirado',
+      );
     }
   }
 

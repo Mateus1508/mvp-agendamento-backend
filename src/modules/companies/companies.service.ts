@@ -3,10 +3,31 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { DayOfWeek, Prisma } from '@prisma/client';
+import { AppointmentStatus, Prisma } from '@prisma/client';
+import { CacheService } from '../../cache/cache.service';
+import { CACHE_KEYS } from '../../cache/cache.constants';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ClientAuthUser } from '../auth/auth.types';
+import { buildAppointmentDateFromParts } from '../appointments/validators/appointment-date.validator';
 import { CompanyAuthUser } from '../auth/auth.types';
-import { CompanyOnboardingResponse } from './companies.types';
+import {
+  CompanyDashboardResponse,
+  CompanyAvailabilityResponse,
+  CompanyOnboardingResponse,
+  ClientBookingConfirmation,
+  PublicCompanyBooking,
+  PublicCompanySummary,
+} from './companies.types';
+import {
+  addDaysToDateString,
+  formatDateLabel,
+  formatTimeInTimezone,
+  generateHourlySlots,
+  getDateStringInTimezone,
+  getDayBounds,
+  getDayOfWeekFromDateString,
+  isTimeAfterNow,
+} from './companies-availability.utils';
 import {
   ALL_DAYS_OF_WEEK,
   formatDayOfWeek,
@@ -24,6 +45,7 @@ import {
   ServiceItemDto,
   UpdateServicesDto,
 } from './dto/company-onboarding.dto';
+import { CreateClientBookingDto } from './dto/create-client-booking.dto';
 
 const companyInclude = {
   address: true,
@@ -36,7 +58,10 @@ const companyInclude = {
 
 @Injectable()
 export class CompaniesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cacheService: CacheService,
+  ) {}
 
   async initializeBusinessHours(companyId: string): Promise<void> {
     await this.prisma.businessHour.createMany({
@@ -69,9 +94,89 @@ export class CompaniesService {
     await this.initializeBusinessHours(companyId);
   }
 
-  async getOnboarding(user: CompanyAuthUser): Promise<CompanyOnboardingResponse> {
+  async getOnboarding(
+    user: CompanyAuthUser,
+  ): Promise<CompanyOnboardingResponse> {
     const company = await this.findCompanyOrThrow(user.companyId);
     return this.toOnboardingResponse(company);
+  }
+
+  async getDashboard(user: CompanyAuthUser): Promise<CompanyDashboardResponse> {
+    const companyId = user.companyId;
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const inSevenDays = new Date(now);
+    inSevenDays.setDate(inSevenDays.getDate() + 7);
+
+    const completedFilter = {
+      companyId,
+      status: AppointmentStatus.COMPLETED,
+      amount: { not: null },
+    } as const;
+
+    const [
+      company,
+      totalCustomers,
+      totalAppointments,
+      completedAppointments,
+      upcomingAppointments,
+      appointmentsThisMonth,
+      totalRevenueAggregate,
+      revenueThisMonthAggregate,
+      activeEmployees,
+      servicesCount,
+    ] = await Promise.all([
+      this.prisma.company.findUniqueOrThrow({
+        where: { id: companyId },
+        select: { tradeName: true, name: true },
+      }),
+      this.prisma.customer.count({ where: { companyId } }),
+      this.prisma.appointment.count({ where: { companyId } }),
+      this.prisma.appointment.count({
+        where: { companyId, status: AppointmentStatus.COMPLETED },
+      }),
+      this.prisma.appointment.count({
+        where: {
+          companyId,
+          status: AppointmentStatus.SCHEDULED,
+          date: { gte: now, lte: inSevenDays },
+        },
+      }),
+      this.prisma.appointment.count({
+        where: { companyId, date: { gte: startOfMonth } },
+      }),
+      this.prisma.appointment.aggregate({
+        where: completedFilter,
+        _sum: { amount: true },
+      }),
+      this.prisma.appointment.aggregate({
+        where: {
+          ...completedFilter,
+          date: { gte: startOfMonth },
+        },
+        _sum: { amount: true },
+      }),
+      this.prisma.employee.count({ where: { companyId, active: true } }),
+      this.prisma.service.count({ where: { companyId } }),
+    ]);
+
+    const totalRevenue = Number(totalRevenueAggregate._sum.amount ?? 0);
+    const revenueThisMonth = Number(revenueThisMonthAggregate._sum.amount ?? 0);
+
+    return {
+      companyName: company.tradeName ?? company.name,
+      totalCustomers,
+      totalAppointments,
+      completedAppointments,
+      upcomingAppointments,
+      appointmentsThisMonth,
+      totalRevenue,
+      revenueThisMonth,
+      averageTicket:
+        completedAppointments > 0 ? totalRevenue / completedAppointments : 0,
+      activeEmployees,
+      servicesCount,
+    };
   }
 
   async updateProfile(
@@ -147,7 +252,9 @@ export class CompaniesService {
 
     for (const day of ALL_DAYS_OF_WEEK) {
       if (!uniqueDays.has(day)) {
-        throw new BadRequestException(`Dia ${formatDayOfWeek(day)} não informado`);
+        throw new BadRequestException(
+          `Dia ${formatDayOfWeek(day)} não informado`,
+        );
       }
     }
 
@@ -244,7 +351,9 @@ export class CompaniesService {
     );
   }
 
-  async skipCalendar(user: CompanyAuthUser): Promise<CompanyOnboardingResponse> {
+  async skipCalendar(
+    user: CompanyAuthUser,
+  ): Promise<CompanyOnboardingResponse> {
     await this.updateOnboardingStep(user.companyId, 6);
 
     return this.toOnboardingResponse(
@@ -392,7 +501,8 @@ export class CompaniesService {
       supportEmail: company.supportEmail,
       website: company.website,
       onboardingStep: company.onboardingStep,
-      onboardingCompletedAt: company.onboardingCompletedAt?.toISOString() ?? null,
+      onboardingCompletedAt:
+        company.onboardingCompletedAt?.toISOString() ?? null,
       bookingUrl: `${frontendBaseUrl}/agendar/${company.slug}`,
       address: company.address
         ? {
@@ -435,5 +545,284 @@ export class CompaniesService {
         : null,
       calendarConnected: Boolean(company.calendarConnection?.connectedAt),
     };
+  }
+
+  async listPublicBySegment(segment: string): Promise<PublicCompanySummary[]> {
+    const normalizedSegment = segment.trim();
+
+    if (!normalizedSegment) {
+      return [];
+    }
+
+    const cacheKey = CACHE_KEYS.companiesBySegment(normalizedSegment);
+    const cached = await this.cacheService.get<PublicCompanySummary[]>(cacheKey);
+
+    if (cached) {
+      return cached;
+    }
+
+    const companies = await this.prisma.company.findMany({
+      where: {
+        segment: normalizedSegment,
+        onboardingCompletedAt: { not: null },
+      },
+      include: {
+        address: true,
+        services: {
+          select: { name: true },
+          orderBy: { createdAt: 'asc' },
+          take: 3,
+        },
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    const frontendBaseUrl =
+      process.env.FRONTEND_BASE_URL ?? 'http://localhost:5173';
+
+    const result = companies.map((company) => ({
+      id: company.id,
+      slug: company.slug,
+      name: company.tradeName ?? company.name,
+      segment: company.segment,
+      city: company.address?.city ?? null,
+      state: company.address?.state ?? null,
+      servicesPreview: company.services.map((service) => service.name),
+      bookingUrl: `${frontendBaseUrl}/agendar/${company.slug}`,
+    }));
+
+    await this.cacheService.set(cacheKey, result);
+
+    return result;
+  }
+
+  async getPublicCompanyBySlug(slug: string): Promise<PublicCompanyBooking> {
+    const company = await this.prisma.company.findFirst({
+      where: {
+        slug,
+        onboardingCompletedAt: { not: null },
+      },
+      include: {
+        address: true,
+        services: { orderBy: { createdAt: 'asc' } },
+      },
+    });
+
+    if (!company) {
+      throw new NotFoundException('Empresa não encontrada');
+    }
+
+    return {
+      id: company.id,
+      slug: company.slug,
+      name: company.tradeName ?? company.name,
+      segment: company.segment,
+      city: company.address?.city ?? null,
+      state: company.address?.state ?? null,
+      phone: company.phone,
+      whatsapp: company.whatsapp,
+      address: company.address
+        ? {
+            zipCode: company.address.zipCode,
+            street: company.address.street,
+            number: company.address.number,
+            complement: company.address.complement,
+            city: company.address.city,
+            state: company.address.state,
+          }
+        : null,
+      services: company.services.map((service) => ({
+        id: service.id,
+        name: service.name,
+        priceMin: Number(service.priceMin),
+        priceMax: Number(service.priceMax),
+        description: service.description,
+      })),
+    };
+  }
+
+  async createClientBooking(
+    slug: string,
+    client: ClientAuthUser,
+    dto: CreateClientBookingDto,
+  ): Promise<ClientBookingConfirmation> {
+    const company = await this.prisma.company.findFirst({
+      where: {
+        slug,
+        onboardingCompletedAt: { not: null },
+      },
+      include: {
+        address: true,
+        services: true,
+      },
+    });
+
+    if (!company) {
+      throw new NotFoundException('Empresa não encontrada');
+    }
+
+    const availability = await this.getPublicAvailability(slug, 14);
+    const day = availability.days.find((item) => item.date === dto.date);
+
+    if (!day?.slots.includes(dto.time)) {
+      throw new BadRequestException('Horário indisponível para agendamento');
+    }
+
+    const service = dto.serviceId
+      ? company.services.find((item) => item.id === dto.serviceId)
+      : company.services[0];
+
+    if (dto.serviceId && !service) {
+      throw new BadRequestException('Serviço inválido para esta empresa');
+    }
+
+    const appointmentDate = buildAppointmentDateFromParts(dto.date, dto.time);
+
+    const conflictingAppointment = await this.prisma.appointment.findFirst({
+      where: {
+        companyId: company.id,
+        status: { not: AppointmentStatus.CANCELLED },
+        date: appointmentDate,
+      },
+    });
+
+    if (conflictingAppointment) {
+      throw new BadRequestException('Este horário acabou de ser reservado');
+    }
+
+    const customer = await this.findOrCreateCustomerForClient(company.id, client);
+
+    const appointment = await this.prisma.appointment.create({
+      data: {
+        companyId: company.id,
+        customerId: customer.id,
+        serviceId: service?.id,
+        amount: service ? service.priceMin : null,
+        date: appointmentDate,
+        status: AppointmentStatus.SCHEDULED,
+      },
+    });
+
+    return {
+      appointmentId: appointment.id,
+      date: dto.date,
+      time: dto.time,
+      serviceName: service?.name ?? null,
+      company: {
+        name: company.tradeName ?? company.name,
+        segment: company.segment,
+        phone: company.phone,
+        whatsapp: company.whatsapp,
+        address: company.address
+          ? {
+              zipCode: company.address.zipCode,
+              street: company.address.street,
+              number: company.address.number,
+              complement: company.address.complement,
+              city: company.address.city,
+              state: company.address.state,
+            }
+          : null,
+      },
+    };
+  }
+
+  private async findOrCreateCustomerForClient(
+    companyId: string,
+    client: ClientAuthUser,
+  ) {
+    const existingCustomer = await this.prisma.customer.findFirst({
+      where: {
+        companyId,
+        phone: client.email,
+      },
+    });
+
+    if (existingCustomer) {
+      return existingCustomer;
+    }
+
+    return this.prisma.customer.create({
+      data: {
+        companyId,
+        name: client.name,
+        phone: client.email,
+      },
+    });
+  }
+
+  async getPublicAvailability(
+    slug: string,
+    days = 7,
+  ): Promise<CompanyAvailabilityResponse> {
+    const company = await this.prisma.company.findFirst({
+      where: {
+        slug,
+        onboardingCompletedAt: { not: null },
+      },
+      include: { businessHours: true },
+    });
+
+    if (!company) {
+      throw new NotFoundException('Empresa não encontrada');
+    }
+
+    const safeDays = Math.min(Math.max(days, 1), 14);
+    const startDate = getDateStringInTimezone(new Date());
+    const availability: CompanyAvailabilityResponse['days'] = [];
+
+    for (let offset = 0; offset < safeDays; offset += 1) {
+      const date = addDaysToDateString(startDate, offset);
+      const dayOfWeek = getDayOfWeekFromDateString(date);
+      const businessHour = company.businessHours.find(
+        (hour) => hour.dayOfWeek === dayOfWeek,
+      );
+
+      if (
+        !businessHour?.enabled ||
+        !businessHour.startTime ||
+        !businessHour.endTime
+      ) {
+        availability.push({
+          date,
+          label: formatDateLabel(date),
+          slots: [],
+        });
+        continue;
+      }
+
+      const allSlots = generateHourlySlots(
+        businessHour.startTime,
+        businessHour.endTime,
+      );
+      const { start, end } = getDayBounds(date);
+      const appointments = await this.prisma.appointment.findMany({
+        where: {
+          companyId: company.id,
+          status: { not: AppointmentStatus.CANCELLED },
+          date: { gte: start, lte: end },
+        },
+        select: { date: true },
+      });
+
+      const bookedTimes = new Set(
+        appointments.map((appointment) =>
+          formatTimeInTimezone(appointment.date),
+        ),
+      );
+
+      const slots = allSlots.filter(
+        (slot) =>
+          !bookedTimes.has(slot) && isTimeAfterNow(date, slot),
+      );
+
+      availability.push({
+        date,
+        label: formatDateLabel(date),
+        slots,
+      });
+    }
+
+    return { days: availability };
   }
 }

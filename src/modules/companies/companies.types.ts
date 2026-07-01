@@ -54,3 +54,82 @@ export type CompanyOnboardingResponse = {
 };
 
 export type CompanyRequestUser = CompanyAuthUser;
+
+export type CompanyDashboardResponse = {
+  companyName: string;
+  totalCustomers: number;
+  totalAppointments: number;
+  completedAppointments: number;
+  upcomingAppointments: number;
+  appointmentsThisMonth: number;
+  totalRevenue: number;
+  revenueThisMonth: number;
+  averageTicket: number;
+  activeEmployees: number;
+  servicesCount: number;
+};
+
+export type PublicCompanySummary = {
+  id: string;
+  slug: string;
+  name: string;
+  segment: string;
+  city: string | null;
+  state: string | null;
+  servicesPreview: string[];
+  bookingUrl: string;
+};
+
+export type PublicCompanyService = {
+  id: string;
+  name: string;
+  priceMin: number;
+  priceMax: number;
+  description: string | null;
+};
+
+export type PublicCompanyAddress = {
+  zipCode: string;
+  street: string;
+  number: string;
+  complement: string | null;
+  city: string;
+  state: string;
+};
+
+export type PublicCompanyBooking = {
+  id: string;
+  slug: string;
+  name: string;
+  segment: string;
+  city: string | null;
+  state: string | null;
+  phone: string | null;
+  whatsapp: string | null;
+  address: PublicCompanyAddress | null;
+  services: PublicCompanyService[];
+};
+
+export type ClientBookingConfirmation = {
+  appointmentId: string;
+  date: string;
+  time: string;
+  serviceName: string | null;
+  company: {
+    name: string;
+    segment: string;
+    phone: string | null;
+    whatsapp: string | null;
+    address: PublicCompanyAddress | null;
+  };
+};
+
+export type DayAvailability = {
+  date: string;
+  label: string;
+  slots: string[];
+};
+
+export type CompanyAvailabilityResponse = {
+  days: DayAvailability[];
+};

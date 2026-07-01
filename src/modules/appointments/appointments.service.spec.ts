@@ -155,7 +155,9 @@ describe('AppointmentsService', () => {
       prisma.appointment.findUnique.mockResolvedValue(null);
 
       await expect(service.findOne('inexistente')).rejects.toThrow(
-        new NotFoundException('Agendamento com id "inexistente" não encontrado'),
+        new NotFoundException(
+          'Agendamento com id "inexistente" não encontrado',
+        ),
       );
     });
   });

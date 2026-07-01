@@ -281,7 +281,9 @@ describe('AgentService', () => {
       llmService.complete.mockResolvedValue({ content: '' });
 
       await expect(service.chat({ message: 'Olá' })).rejects.toThrow(
-        new InternalServerErrorException('A IA não retornou uma resposta válida'),
+        new InternalServerErrorException(
+          'A IA não retornou uma resposta válida',
+        ),
       );
     });
   });

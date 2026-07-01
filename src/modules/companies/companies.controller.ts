@@ -10,7 +10,10 @@ import {
 import { CompanyAuthUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { CompaniesService } from './companies.service';
-import { CompanyOnboardingResponse } from './companies.types';
+import {
+  CompanyOnboardingResponse,
+  CompanyDashboardResponse,
+} from './companies.types';
 import {
   UpdateAgentConfigDto,
   UpdateBusinessHoursDto,
@@ -31,6 +34,13 @@ export class CompaniesController {
     @CurrentUser() user: CompanyAuthUser,
   ): Promise<CompanyOnboardingResponse> {
     return this.companiesService.getOnboarding(user);
+  }
+
+  @Get('dashboard')
+  getDashboard(
+    @CurrentUser() user: CompanyAuthUser,
+  ): Promise<CompanyDashboardResponse> {
+    return this.companiesService.getDashboard(user);
   }
 
   @Patch('profile')

@@ -1,6 +1,15 @@
-import { Body, Controller, Get, Post, Query, UnauthorizedException } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Query,
+  Res,
+  UnauthorizedException,
+} from '@nestjs/common';
+import type { Response } from 'express';
 import { AuthService } from './auth.service';
-import { AuthUser, GoogleAuthResult } from './auth.types';
+import { AuthUser } from './auth.types';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
 import { LoginCompanyDto } from './dto/login-company.dto';
@@ -19,13 +28,20 @@ export class AuthController {
   @Public()
   @Get('google/callback')
   async googleCallback(
-    @Query('code') code?: string,
-  ): Promise<GoogleAuthResult> {
+    @Query('code') code: string | undefined,
+    @Res() res: Response,
+  ): Promise<void> {
     if (!code) {
       throw new UnauthorizedException('Código de autorização não informado');
     }
 
-    return this.authService.handleGoogleCallback(code);
+    const result = await this.authService.handleGoogleCallback(code);
+    const frontendBaseUrl =
+      process.env.FRONTEND_BASE_URL ?? 'http://localhost:5173';
+    const redirectUrl = new URL('/cliente/chat', frontendBaseUrl);
+    redirectUrl.searchParams.set('accessToken', result.accessToken);
+
+    res.redirect(302, redirectUrl.toString());
   }
 
   @Public()

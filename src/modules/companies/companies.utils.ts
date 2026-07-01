@@ -54,7 +54,10 @@ export function isValidTime(value: string): boolean {
   return /^([01]\d|2[0-3]):([0-5]\d)$/.test(value);
 }
 
-export function isEndTimeAfterStartTime(startTime: string, endTime: string): boolean {
+export function isEndTimeAfterStartTime(
+  startTime: string,
+  endTime: string,
+): boolean {
   const [startHour, startMinute] = startTime.split(':').map(Number);
   const [endHour, endMinute] = endTime.split(':').map(Number);
 

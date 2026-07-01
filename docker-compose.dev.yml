@@ -1,0 +1,35 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: mvp-agendamento-backend
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/mvp_agendamento?schema=public
+      REDIS_URL: redis://redis:6379
+      PORT: 3000
+      NODE_ENV: development
+      # Necessário no Docker Desktop (Windows/Mac) para detectar alterações nos volumes
+      CHOKIDAR_USEPOLLING: 'true'
+      CHOKIDAR_INTERVAL: '1000'
+    volumes:
+      - ./src:/app/src
+      - ./prisma:/app/prisma
+      - ./prisma.config.ts:/app/prisma.config.ts
+      - ./nest-cli.json:/app/nest-cli.json
+      - ./tsconfig.json:/app/tsconfig.json
+      - ./tsconfig.build.json:/app/tsconfig.build.json
+      - backend_node_modules:/app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  backend_node_modules:

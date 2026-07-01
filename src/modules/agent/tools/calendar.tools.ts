@@ -64,7 +64,10 @@ export const calendarTools: AgentToolDefinition[] = [
       parameters: {
         type: 'object',
         properties: {
-          id: { type: 'string', description: 'Id do evento no Google Calendar' },
+          id: {
+            type: 'string',
+            description: 'Id do evento no Google Calendar',
+          },
           summary: { type: 'string', description: 'Novo título do evento' },
           description: { type: 'string', description: 'Nova descrição' },
           start: { type: 'string', description: 'Novo início em ISO 8601' },
@@ -83,7 +86,10 @@ export const calendarTools: AgentToolDefinition[] = [
       parameters: {
         type: 'object',
         properties: {
-          id: { type: 'string', description: 'Id do evento no Google Calendar' },
+          id: {
+            type: 'string',
+            description: 'Id do evento no Google Calendar',
+          },
         },
         required: ['id'],
       },

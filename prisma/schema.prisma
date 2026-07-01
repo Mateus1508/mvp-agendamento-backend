@@ -25,23 +25,42 @@ enum AgentPersonality {
   SERIOUS
 }
 
+enum AppointmentStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
 model Customer {
-  id    String @id @default(uuid())
-  name  String
-  phone String
+  id        String   @id @default(uuid())
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+  phone     String
 
   appointments  Appointment[]
   agentSessions AgentSession[]
+
+  @@index([companyId])
 }
 
 model Appointment {
-  id   String   @id @default(uuid())
-  date DateTime
-
+  id         String             @id @default(uuid())
+  companyId  String?
+  company    Company?           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   customerId String
-  customer   Customer @relation(fields: [customerId], references: [id])
+  customer   Customer           @relation(fields: [customerId], references: [id])
+  serviceId  String?
+  service    Service?           @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  amount     Decimal?           @db.Decimal(10, 2)
+  status     AppointmentStatus  @default(SCHEDULED)
+  date       DateTime
 
   createdAt DateTime @default(now())
+
+  @@index([companyId])
+  @@index([companyId, date])
+  @@index([companyId, status])
 }
 
 model Client {
@@ -76,6 +95,8 @@ model Company {
   businessHours          BusinessHour[]
   employees              Employee[]
   services               Service[]
+  customers              Customer[]
+  appointments           Appointment[]
   agentConfig            CompanyAgentConfig?
   calendarConnection     CompanyCalendarConnection?
 }
@@ -141,6 +162,8 @@ model Service {
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  appointments Appointment[]
 }
 
 model CompanyAgentConfig {

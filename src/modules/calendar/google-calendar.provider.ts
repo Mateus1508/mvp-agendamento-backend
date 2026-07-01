@@ -156,9 +156,7 @@ export class GoogleCalendarProvider {
       end: input.end
         ? { dateTime: input.end, timeZone: 'America/Sao_Paulo' }
         : undefined,
-      extendedProperties: customerId
-        ? { private: { customerId } }
-        : undefined,
+      extendedProperties: customerId ? { private: { customerId } } : undefined,
     };
   }
 

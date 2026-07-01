@@ -1,9 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
-import {
-  AgentSessionMemory,
-  CustomerMemoryData,
-} from './agent-memory.types';
+import { AgentSessionMemory, CustomerMemoryData } from './agent-memory.types';
 
 @Injectable()
 export class AgentMemoryService {
@@ -160,7 +157,8 @@ export class AgentMemoryService {
     }
 
     const customerData =
-      this.extractCustomerData(data) ?? this.extractCustomerIdFromCalendar(data);
+      this.extractCustomerData(data) ??
+      this.extractCustomerIdFromCalendar(data);
 
     if (!customerData) {
       return;

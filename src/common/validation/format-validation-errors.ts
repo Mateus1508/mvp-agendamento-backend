@@ -6,7 +6,10 @@ const DEFAULT_MESSAGE_TRANSLATIONS: Array<[RegExp, string]> = [
   [/^(.+) should not be empty$/, 'Preencha este campo'],
   [/^(.+) must be a string$/, 'Este campo deve ser um texto'],
   [/^(.+) must be a boolean value$/, 'Este campo deve ser verdadeiro ou falso'],
-  [/^(.+) must be a number conforming to the specified constraints$/, 'Informe um número válido'],
+  [
+    /^(.+) must be a number conforming to the specified constraints$/,
+    'Informe um número válido',
+  ],
   [/^(.+) must be an email$/, 'Informe um e-mail válido'],
   [/^(.+) must be one of the following values:/, 'Selecione um valor válido'],
 ];

@@ -4,6 +4,7 @@ import { JwtModule, JwtSignOptions } from '@nestjs/jwt';
 import { CompaniesModule } from '../companies/companies.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { ClientAuthGuard } from './guards/client-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 const jwtExpiresIn = (process.env.JWT_EXPIRES_IN ??
@@ -22,11 +23,12 @@ const jwtExpiresIn = (process.env.JWT_EXPIRES_IN ??
   controllers: [AuthController],
   providers: [
     AuthService,
+    ClientAuthGuard,
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
     },
   ],
-  exports: [AuthService, JwtModule],
+  exports: [AuthService, JwtModule, ClientAuthGuard],
 })
 export class AuthModule {}

@@ -43,9 +43,7 @@ export function validateAppointmentDate(date: Date): void {
   }
 
   if (hour < MIN_APPOINTMENT_HOUR || hour > MAX_APPOINTMENT_HOUR) {
-    throw new BadRequestException(
-      'O horário deve estar entre 08:00 e 17:00',
-    );
+    throw new BadRequestException('O horário deve estar entre 08:00 e 17:00');
   }
 }
 
@@ -58,4 +56,11 @@ export function parseAppointmentDate(dateInput: string): Date {
 
   validateAppointmentDate(date);
   return date;
+}
+
+export function buildAppointmentDateFromParts(
+  date: string,
+  time: string,
+): Date {
+  return parseAppointmentDate(`${date}T${time}:00-03:00`);
 }

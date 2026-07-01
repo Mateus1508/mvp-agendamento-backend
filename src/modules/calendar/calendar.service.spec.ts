@@ -93,7 +93,9 @@ describe('CalendarService', () => {
 
       const result = await service.deleteEvent('event-1');
 
-      expect(googleCalendarProvider.deleteEvent).toHaveBeenCalledWith('event-1');
+      expect(googleCalendarProvider.deleteEvent).toHaveBeenCalledWith(
+        'event-1',
+      );
       expect(result).toEqual(event);
     });
 
